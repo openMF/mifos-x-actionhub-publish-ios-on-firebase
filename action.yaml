@@ -1,0 +1,132 @@
+name: 'KMP Publish iOS App on Firebase'
+description: 'Build and publish iOS application on Firebase'
+author: 'Mifos Initiative'
+branding:
+  icon: 'package'
+  color: 'blue'
+
+inputs:
+  ios_package_name:
+    description: 'Name of the Android project module'
+    required: true
+  firebase_creds:
+    description: 'Firebase credentials'
+    required: true
+  github_token:
+    description: 'GitHub token'
+    required: true
+  target_branch:
+    description: 'Target branch for deployment'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Java development environment
+      uses: actions/setup-java@v4.2.2
+      with:
+        distribution: 'zulu'  # Use Zulu distribution of OpenJDK
+        java-version: '17'     # Use Java 17 version
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
+
+    # Cache Gradle dependencies to speed up builds
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          ~/.konan
+          build
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+
+    - name: Configure Ruby
+      uses: ruby/setup-ruby@a2bbe5b1b236842c1cb7dd11e8e3b51e0a616acc # v1.202.0
+      with:
+        bundler-cache: true
+
+    - name: Install Fastlane
+      shell: bash
+      run: |
+        gem install bundler:2.2.27
+        bundle install --jobs 4 --retry 3
+        bundle exec fastlane add_plugin firebase_app_distribution
+        bundle exec fastlane add_plugin increment_build_number
+
+    # Generate version number
+    - name: Generate Release Number
+      id: rel_number
+      shell: bash
+      run: |
+        ./gradlew versionFile
+        COMMITS=`git rev-list --count HEAD`
+        TAGS=`git tag | grep -v beta | wc -l`
+        VC=$(((COMMITS+TAGS) << 1))
+        echo "version-code=$VC" >> $GITHUB_OUTPUT
+        VERSION=`cat version.txt`
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Generate Release Notes
+      uses: actions/github-script@v7
+      id: release-notes
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          try {
+            // Get latest release tag
+            const latestRelease = await github.rest.repos.getLatestRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const previousTag = latestRelease.data.tag_name;
+
+            // Generate release notes
+            const params = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: '${{ steps.rel_number.outputs.version }}',
+              target_commitish: '${{ inputs.target_branch }}'
+            };
+
+            const { data } = await github.rest.repos.generateReleaseNotes(params);
+            const changelog = data.body.replaceAll('`', '\'').replaceAll('"', '\'');
+
+            // Write changelog files
+            const fs = require('fs');
+            fs.writeFileSync('${{ inputs.ios_package_name }}/changelogGithub', changelog);
+
+            // Generate beta changelog
+            const { execSync } = require('child_process');
+            execSync('git log --format="* %s" HEAD^..HEAD > ${{ inputs.ios_package_name }}/changelogBeta');
+
+            return changelog;
+          } catch (error) {
+            console.error('Error generating release notes:', error);
+            return '';
+          }
+
+    - name: Inflate Secrets
+      shell: bash
+      env:
+        FIREBASE_CREDS: ${{ inputs.firebase_creds }}
+      run: |
+        # Inflate Firebase credentials
+        touch ${{ inputs.ios_package_name }}/firebaseAppDistributionServiceCredentialsFile.json
+        echo $FIREBASE_CREDS > ${{ inputs.ios_package_name }}/firebaseAppDistributionServiceCredentialsFile.json
+
+    - name: Build iOS App
+      shell: bash
+      run: bundle exec fastlane ios build_ios
+
+    - name: Upload iOS Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ios-app
+        retention-days: 1
+        compression-level: 9
+        path: '**/*.ipa'
+
+    - name: Upload iOS App to Firebase Distribution
+      shell: bash
+      run: bundle exec fastlane ios deploy_on_firebase
