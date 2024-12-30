@@ -1,106 +1,135 @@
-# KMP Build & Publish iOS App on Firebase
+# KMP Publish iOS App on Firebase Action
 
-This GitHub Action automates the process of building an iOS application, generating release notes, and distributing the build to Firebase App Distribution. It includes version management and comprehensive caching for optimized build times.
+This GitHub Action automates the process of building and publishing iOS applications to Firebase App Distribution. It handles the build process, signing, and deployment using Fastlane.
 
 ## Features
 
-- Automated iOS app building
-- Version number generation
-- Automated release notes generation
-- Firebase App Distribution integration
-- Gradle and Konan caching
-- Java development environment setup
-- Fastlane integration
+- Automated Firebase App Distribution deployment
+- iOS IPA build and signing
+- Build artifact archiving
+- Gradle and Ruby dependency caching
+- Firebase tester group management
 
 ## Prerequisites
 
-- iOS project with Xcode configuration
-- Firebase project setup
-- GitHub repository with release history
-- Fastlane setup in the repository
-- Valid iOS certificates and provisioning profiles
+Before using this action, ensure you have:
 
-## Inputs
+1. A Firebase project with App Distribution enabled
+2. Firebase service account credentials
+3. An iOS app set up in Firebase
+4. Xcode project configured with proper signing
 
-| Input              | Description                               | Required |
-|--------------------|-------------------------------------------|----------|
-| `ios_package_name` | Name of the iOS project module            | Yes      |
-| `firebase_creds`   | Firebase service account credentials JSON | Yes      |
-| `github_token`     | GitHub token for API access               | Yes      |
-| `target_branch`    | Target branch for deployment              | Yes      |
+## Setup
+
+### Fastlane Setup
+
+Create a `Gemfile` in your project root:
+
+```ruby
+source "https://rubygems.org"
+
+gem "fastlane"
+gem "firebase_app_distribution"
+```
+
+Create a `fastlane/Fastfile` with the following content:
+
+```ruby
+default_platform(:ios)
+
+platform :ios do
+  desc "Deploy to Firebase App Distribution"
+  lane :deploy_on_firebase do |options|
+    build_ios_app(
+      scheme: ENV["IOS_PACKAGE_NAME"],
+      export_method: "ad-hoc"
+    )
+    
+    firebase_app_distribution(
+      app: ENV["FIREBASE_APP_ID"],
+      groups: options[:groups],
+      service_credentials_file: options[:serviceCredsFile],
+      release_notes: "New build from GitHub Actions"
+    )
+  end
+end
+```
 
 ## Usage
 
+Add the following workflow to your GitHub Actions:
+
 ```yaml
-name: KMP iOS deploy to Firebase
+name: Deploy to Firebase
 
 on:
-  workflow_dispatch:
-    inputs:
-      ios_package_name:
-        description: 'Name of the iOS project module'
-        required: true
-        default: 'mifospay-ios'
-
-
-permissions:
-  contents: write
+  push:
+    branches: [ main ]
+  # Or trigger on release
+  release:
+    types: [created]
 
 jobs:
-  deploy_ios_app:
-    name: Deploy iOS App
+  deploy:
     runs-on: macos-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Deploy iOS App to Firebase
+      - uses: actions/checkout@v3
+      
+      - name: Deploy to Firebase
         uses: openMF/kmp-publish-ios-on-firebase-action@v1.0.0
         with:
-          ios_package_name: ${{ inputs.ios_package_name }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          firebase_creds: ${{ secrets.FIREBASECREDS }}
-          target_branch: 'dev'
-
+          ios_package_name: 'YourAppName'
+          firebase_creds: ${{ secrets.FIREBASE_CREDS }}
+          tester_groups: 'qa-team,beta-testers'
 ```
 
-## Workflow Details
+## Inputs
 
-1. **Environment Setup**
-    - Configures Java 17 (Zulu distribution)
-    - Sets up Gradle with caching
-    - Configures Ruby and Fastlane
-    - Sets up dependency caching for Gradle, Konan, and build outputs
+| Input              | Description                                         | Required |
+|--------------------|-----------------------------------------------------|----------|
+| `ios_package_name` | Name of your iOS app/scheme                         | Yes      |
+| `firebase_creds`   | Base64 encoded Firebase service account credentials | Yes      |
+| `tester_groups`    | Comma-separated list of Firebase tester groups      | Yes      |
 
-2. **Version Management**
-    - Generates version codes based on commits and tags
-    - Reads version name from version.txt
-    - Formula: `version-code = (commits + tags) << 1`
+## Setting up Secrets
 
-3. **Release Notes Generation**
-    - Fetches latest release tag
-    - Generates release notes using GitHub API
-    - Creates two changelog files:
-        - `changelogGithub`: Comprehensive release notes
-        - `changelogBeta`: Changes since last commit
+1. Encode your Firebase credentials file to base64:
+```bash
+base64 -i path/to/firebase-credentials.json -o firebase-creds.txt
+```
 
-4. **Build Process**
-    - Configures Firebase credentials
-    - Builds iOS application using Fastlane
-    - Generates IPA file
+2. Add the following secret to your GitHub repository:
+- `FIREBASE_CREDS`: Content of firebase-creds.txt
 
-5. **Distribution**
-    - Uploads build artifacts with high compression
-    - Distributes to Firebase App Distribution
+## Build Artifacts
 
-## Dependencies
+The action uploads the built IPA file as an artifact with:
+- Name: 'ios-app'
+- Retention period: 1 day
+- Maximum compression (level 9)
 
-- Java 17 (Zulu distribution)
-- Gradle
-- Ruby
-- Bundler 2.2.27
-- Fastlane plugins:
-    - firebase_app_distribution
-    - increment_build_number
+You can find the IPA file in your GitHub Actions run artifacts.
+
+This helps reduce build times in subsequent runs.
+
+## Firebase App Setup
+
+1. Go to the Firebase Console
+2. Navigate to App Distribution
+3. Create a new iOS app or select an existing one
+4. Set up tester groups under App Distribution
+5. Create a service account with appropriate permissions
+6. Download the service account JSON key file
+
+## Troubleshooting
+
+Common issues and solutions:
+
+1. Build fails due to signing
+   - Ensure your Xcode project has proper signing configuration
+   - Verify the export method matches your provisioning profile
+
+2. Firebase deployment fails
+   - Check if the service account has sufficient permissions
+   - Verify the Firebase app ID is correct
+   - Ensure tester groups exist in Firebase console
