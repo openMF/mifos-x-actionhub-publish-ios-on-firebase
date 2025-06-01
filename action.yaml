@@ -34,6 +34,18 @@ inputs:
     required: true
     description: 'SSH private key for accessing the certificates repository'
 
+  appstore_key_id:
+    required: true
+    description: 'Key ID from App Store Connect API Key'
+
+  appstore_issuer_id:
+    required: true
+    description: 'Issuer ID from App Store Connect API Key'
+
+  appstore_auth_key:
+    required: true
+    description: 'Base64-encoded contents of the .p8 private key file'
+
   ios_package_name:
     description: 'Name of the Android project module'
     required: true
@@ -92,10 +104,12 @@ runs:
       shell: bash
       env:
         FIREBASE_CREDS: ${{ inputs.firebase_creds }}
+        AUTH_KEY: ${{ inputs.appstore_auth_key }}
       run: |
         mkdir -p secrets
         touch secrets/firebaseAppDistributionServiceCredentialsFile.json
         echo $FIREBASE_CREDS | base64 --decode > secrets/firebaseAppDistributionServiceCredentialsFile.json
+        echo "$AUTH_KEY" | base64 --decode > secrets/Auth_key.p8
 
     - name: Upload iOS App to Firebase Distribution
       shell: bash
@@ -105,20 +119,26 @@ runs:
         GIT_BRANCH: ${{ inputs.git_branch }}
         MATCH_TYPE: ${{ inputs.match_type }}
         PROVISIONING_PROFILE_NAME: ${{ inputs.provisioning_profile_name }}
+        APPSTORE_KEY_ID: ${{ inputs.appstore_key_id }}
+        APPSTORE_ISSUER_ID: ${{ inputs.appstore_issuer_id }}
         MATCH_PASSWORD: ${{ inputs.match_password }}
         FIREBASE_APP_ID: ${{ inputs.firebase_app_id }}
         GROUPS: ${{ inputs.tester_groups }}
 
-      run: bundle exec fastlane ios deploy_on_firebase \
+      run: |
+        bundle exec fastlane ios deploy_on_firebase \
         app_identifier:"$APP_IDENTIFIER" \
         git_url:"$GIT_URL" \
         git_branch:"$GIT_BRANCH" \
         match_type:"$MATCH_TYPE" \
         provisioning_profile_name:"$PROVISIONING_PROFILE_NAME" \
+        appstore_key_id:"$APPSTORE_KEY_ID" \
+        appstore_issuer_id:"$APPSTORE_ISSUER_ID" \
         match_password:"$MATCH_PASSWORD" \
         git_private_key:~/.ssh/match_ci_key \
         firebase_app_id:"$FIREBASE_APP_ID" \
         serviceCredsFile:secrets/firebaseAppDistributionServiceCredentialsFile.json \
+        key_filepath:secrets/Auth_key.p8 \
         groups:"$GROUPS"
 
     - name: Upload iOS Artifact
