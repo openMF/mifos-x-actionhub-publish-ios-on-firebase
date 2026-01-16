@@ -12,6 +12,18 @@ Distribution. It handles the build process, signing, and deployment using Fastla
 - Firebase tester group management
 - SSH key authentication via base64 secrets
 
+## Configuration
+
+iOS configuration inputs are optional (except `ios_package_name`). Configuration is read from
+`fastlane-config/project_config.rb` in the project repository when parameters are not provided.
+
+**Supported configuration methods:**
+
+- Explicit parameters (backward compatible with previous versions)
+- Automatic extraction from `project_config.rb`
+
+See usage patterns below for implementation examples.
+
 ## Prerequisites
 
 Before using this action, ensure you have:
@@ -104,98 +116,100 @@ Create a `fastlane/Fastfile` with the following content:
 default_platform(:ios)
 
 platform :ios do
-    desc "Deploy iOS app to Firebase App Distribution"
-    lane :deploy_on_firebase do |options|
-        # === Variables at top ===
-        firebase_app_id = options[:firebase_app_id] || "1:xxxxxx:ios:xxxxxxxx"
-        match_type = options[:match_type] || "adhoc"
-        app_identifier = options[:app_identifier] || "com.example.myapp"
-        git_url = options[:git_url] || "git@github.com:openMF/ios-provisioning-profile.git"
-        git_branch = options[:git_branch] || "master"
-        match_password = options[:match_password] || "your-default-match-password"
-        git_private_key = options[:git_private_key] || "./secrets/match_ci_key"
-        groups = options[:tester_groups] || "qa-team,beta-testers"
-        serviceCredsFile = options[:serviceCredsFile] || "secrets/firebaseAppDistributionServiceCredentialsFile.json"
-        provisioning_profile_name = options[:provisioning_profile_name] || "match AdHoc com.example.myapp"
-        appstore_key_id = options[:appstore_key_id] || "DEFAULT_KEY_ID"
-        appstore_issuer_id = options[:appstore_issuer_id] || "DEFAULT_ISSUER_ID"
-        key_filepath = options[:key_filepath] || "secrets/Auth_key.p8"
-    
-        # === Setup CI ===
-        unless ENV['CI']
-            UI.message("🖥️ Running locally, skipping CI-specific setup.")
-        else
-            setup_ci(provider: "circleci")
-        end
-    
-        # === Load API Key ===
-        app_store_connect_api_key(
-            key_id: appstore_key_id,
-            issuer_id: appstore_issuer_id,
-            key_filepath: key_filepath,
-            duration: 1200
-        )
-    
-        # === Fetch Match certs ===
-        match(
-            type: match_type,
-            app_identifier: app_identifier,
-            readonly: false,
-            git_url: git_url,
-            git_branch: git_branch,
-            git_private_key: git_private_key,
-            force_for_new_devices: true,
-            api_key: Actions.lane_context[SharedValues::APP_STORE_CONNECT_API_KEY]
-        )
-    
-        # === Increment build number from Firebase ===
-        latest_release = firebase_app_distribution_get_latest_release(
-            app: firebase_app_id,
-            service_credentials_file: serviceCredsFile
-        )
-    
-        if latest_release
-            increment_build_number(
-                xcodeproj: "iosApp/iosApp.xcodeproj",
-                build_number: latest_release[:buildVersion].to_i + 1
-            )
-        else
-            UI.important("⚠️ No existing Firebase release found. Skipping build number increment.")
-        end
-    
-        # === Build signed IPA ===
-        build_ios_app(
-            scheme: "iosApp",
-            project: "iosApp/iosApp.xcodeproj",
-            output_name: "DeployIosApp.ipa",
-            output_directory: "iosApp/build",
-            export_options: {
-                provisioningProfiles: {
-                    app_identifier => provisioning_profile_name
-                }
-            },
-            xcargs: "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=\"Apple Distribution\" DEVELOPMENT_TEAM=L432S2FZP5 PROVISIONING_PROFILE_SPECIFIER=\"#{provisioning_profile_name}\""
-        )
-    
-        # === Generate release notes ===
-        releaseNotes = changelog_from_git_commits(
-            commits_count: 1
-        )
-    
-        # === Upload to Firebase ===
-        firebase_app_distribution(
-            app: firebase_app_id,
-            service_credentials_file: serviceCredsFile,
-            release_notes: releaseNotes,
-            groups: groups
-        )
+  desc "Deploy iOS app to Firebase App Distribution"
+  lane :deploy_on_firebase do |options|
+    # === Variables at top ===
+    firebase_app_id = options[:firebase_app_id] || "1:xxxxxx:ios:xxxxxxxx"
+    match_type = options[:match_type] || "adhoc"
+    app_identifier = options[:app_identifier] || "com.example.myapp"
+    git_url = options[:git_url] || "git@github.com:openMF/ios-provisioning-profile.git"
+    git_branch = options[:git_branch] || "master"
+    match_password = options[:match_password] || "your-default-match-password"
+    git_private_key = options[:git_private_key] || "./secrets/match_ci_key"
+    groups = options[:tester_groups] || "qa-team,beta-testers"
+    serviceCredsFile = options[:serviceCredsFile] || "secrets/firebaseAppDistributionServiceCredentialsFile.json"
+    provisioning_profile_name = options[:provisioning_profile_name] || "match AdHoc com.example.myapp"
+    appstore_key_id = options[:appstore_key_id] || "DEFAULT_KEY_ID"
+    appstore_issuer_id = options[:appstore_issuer_id] || "DEFAULT_ISSUER_ID"
+    key_filepath = options[:key_filepath] || "secrets/Auth_key.p8"
+
+    # === Setup CI ===
+    unless ENV['CI']
+      UI.message("🖥️ Running locally, skipping CI-specific setup.")
+    else
+      setup_ci(provider: "circleci")
     end
+
+    # === Load API Key ===
+    app_store_connect_api_key(
+      key_id: appstore_key_id,
+      issuer_id: appstore_issuer_id,
+      key_filepath: key_filepath,
+      duration: 1200
+    )
+
+    # === Fetch Match certs ===
+    match(
+      type: match_type,
+      app_identifier: app_identifier,
+      readonly: false,
+      git_url: git_url,
+      git_branch: git_branch,
+      git_private_key: git_private_key,
+      force_for_new_devices: true,
+      api_key: Actions.lane_context[SharedValues::APP_STORE_CONNECT_API_KEY]
+    )
+
+    # === Increment build number from Firebase ===
+    latest_release = firebase_app_distribution_get_latest_release(
+      app: firebase_app_id,
+      service_credentials_file: serviceCredsFile
+    )
+
+    if latest_release
+      increment_build_number(
+        xcodeproj: "iosApp/iosApp.xcodeproj",
+        build_number: latest_release[:buildVersion].to_i + 1
+      )
+    else
+      UI.important("⚠️ No existing Firebase release found. Skipping build number increment.")
+    end
+
+    # === Build signed IPA ===
+    build_ios_app(
+      scheme: "iosApp",
+      project: "iosApp/iosApp.xcodeproj",
+      output_name: "DeployIosApp.ipa",
+      output_directory: "iosApp/build",
+      export_options: {
+        provisioningProfiles: {
+          app_identifier => provisioning_profile_name
+        }
+      },
+      xcargs: "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=\"Apple Distribution\" DEVELOPMENT_TEAM=L432S2FZP5 PROVISIONING_PROFILE_SPECIFIER=\"#{provisioning_profile_name}\""
+    )
+
+    # === Generate release notes ===
+    releaseNotes = changelog_from_git_commits(
+      commits_count: 1
+    )
+
+    # === Upload to Firebase ===
+    firebase_app_distribution(
+      app: firebase_app_id,
+      service_credentials_file: serviceCredsFile,
+      release_notes: releaseNotes,
+      groups: groups
+    )
+  end
 end
 ```
 
-## Usage
+## Usage Patterns
 
-Add the following workflow to your GitHub Actions:
+### Configuration from project_config.rb
+
+iOS configuration values are read from `fastlane-config/project_config.rb`:
 
 ```yaml
 name: Deploy iOS to Firebase
@@ -203,14 +217,13 @@ name: Deploy iOS to Firebase
 on:
   push:
     branches: [ main ]
-  # or:
   workflow_dispatch:
 
 jobs:
   deploy_ios:
     runs-on: macos-latest
     steps:
-      - name: Set Xcode version 16.2
+      - name: Set Xcode version
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
@@ -219,22 +232,62 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Publish iOS App to Firebase
-        uses: openMF/kmp-publish-ios-on-firebase-action@v1.0.2
+        uses: openMF/mifos-x-actionhub-publish-ios-on-firebase@v2.0.0
         with:
+          ios_package_name: 'cmp-ios'
+          # Configuration read from fastlane-config/project_config.rb
+          # Only secrets needed:
+          appstore_key_id: ${{ secrets.APPSTORE_KEY_ID }}
+          appstore_issuer_id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          appstore_auth_key: ${{ secrets.APPSTORE_AUTH_KEY }}
+          match_password: ${{ secrets.MATCH_PASSWORD }}
+          match_ssh_private_key: ${{ secrets.MATCH_SSH_PRIVATE_KEY }}
+          firebase_creds: ${{ secrets.FIREBASE_CREDS }}
+```
+
+### Explicit Parameter Configuration
+
+All parameters can be passed explicitly:
+
+```yaml
+name: Deploy iOS to Firebase
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy_ios:
+    runs-on: macos-latest
+    steps:
+      - name: Set Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Publish iOS App to Firebase
+        uses: openMF/mifos-x-actionhub-publish-ios-on-firebase@v2.0.0
+        with:
+          ios_package_name: 'cmp-ios'
+          # Explicit configuration:
           app_identifier: 'com.example.myapp'
           git_url: 'git@github.com:openMF/ios-provisioning-profile.git'
           git_branch: 'master'
           match_type: 'adhoc'
           provisioning_profile_name: 'match AdHoc com.example.myapp'
-          match_password: ${{ secrets.MATCH_PASSWORD }}
-          match_ssh_private_key: ${{ secrets.MATCH_SSH_PRIVATE_KEY }}
+          firebase_app_id: '1:xxxxxx:ios:xxxxxxxx'
+          tester_groups: 'qa-team,beta-testers'
+          # Secrets:
           appstore_key_id: ${{ secrets.APPSTORE_KEY_ID }}
           appstore_issuer_id: ${{ secrets.APPSTORE_ISSUER_ID }}
           appstore_auth_key: ${{ secrets.APPSTORE_AUTH_KEY }}
-          ios_package_name: 'iosApp'
-          firebase_app_id: '1:xxxxxx:ios:xxxxxxxx'
+          match_password: ${{ secrets.MATCH_PASSWORD }}
+          match_ssh_private_key: ${{ secrets.MATCH_SSH_PRIVATE_KEY }}
           firebase_creds: ${{ secrets.FIREBASE_CREDS }}
-          tester_groups: 'qa-team,beta-testers'
 ```
 
 ## Inputs and Secrets
@@ -265,6 +318,7 @@ base64 -i path/to/firebase-credentials.json -o firebase-creds.txt
 ```
 
 2. Encode you r `.p8` API key to base64:
+
 ```bash
 base64 -i path/to/AuthKey_XXXXXXXXXX.p8 | pbcopy 
 ```
