@@ -76,7 +76,7 @@ runs:
         key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
 
     - name: Configure Ruby
-      uses: ruby/setup-ruby@a2bbe5b1b236842c1cb7dd11e8e3b51e0a616acc # v1.202.0
+      uses: ruby/setup-ruby@09a7688d3b55cf0e976497ff046b70949eeaccfd # v1.288.0
       with:
         bundler-cache: true
 
