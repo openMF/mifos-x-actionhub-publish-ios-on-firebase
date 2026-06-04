@@ -1,0 +1,96 @@
+# Composite action: Deploy iOS IPA to Firebase App Distribution
+# Patched for fastlane-modernization sub-plan 12:
+#   - AC18: pin firebase_app_distribution to --version=1.0.0
+#   - AC19: SHA-pin ruby/setup-ruby
+#   - AC20: rename MATCH_SSH_PRIVATE_KEY → MATCH_GIT_PRIVATE_KEY (canonical
+#           name flows across all actionhub repos + consumer dispatcher
+#           workflows). Backward-compat fallback retained for one release.
+name: 'Deploy iOS Firebase App Distribution'
+description: 'Build signed iOS IPA and deploy to Firebase App Distribution.'
+
+inputs:
+  ios_package_name:
+    description: 'iOS module name (e.g. cmp-ios)'
+    required: true
+  shared_module:
+    description: 'Gradle path to KMP shared module (e.g. :cmp-shared)'
+    required: true
+  use_cocoapods:
+    description: 'Install CocoaPods dependencies'
+    required: false
+    default: 'false'
+  appstore_key_id:
+    description: 'App Store Connect API key ID'
+    required: true
+  appstore_issuer_id:
+    description: 'App Store Connect issuer ID'
+    required: true
+  appstore_auth_key:
+    description: 'Base64-encoded .p8 App Store Connect API key'
+    required: true
+  match_password:
+    description: 'Fastlane Match passphrase'
+    required: true
+  match_git_private_key:
+    description: 'SSH private key for Match git repo (canonical ENV name — AC20)'
+    required: false
+  match_ssh_private_key:
+    description: 'DEPRECATED — use match_git_private_key. Kept for v1.x backward-compat; removed in v2.0.'
+    required: false
+  firebase_creds:
+    description: 'Base64-encoded Firebase service account JSON'
+    required: true
+  tester_groups:
+    description: 'Firebase tester group(s), comma-separated'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Ruby (SHA-pinned — AC19)
+      uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f  # v1.232.0
+      with:
+        bundler-cache: true
+
+    - name: Install Fastlane plugins (pinned — AC18)
+      shell: bash
+      run: |
+        fastlane add_plugin firebase_app_distribution --version=1.0.0
+
+    - name: Inflate secrets
+      shell: bash
+      env:
+        APPSTORE_AUTH_KEY_B64: ${{ inputs.appstore_auth_key }}
+        # AC20 canonical name with v1.x fallback to the deprecated input.
+        MATCH_GIT_PRIVATE_KEY: ${{ inputs.match_git_private_key || inputs.match_ssh_private_key }}
+        FIREBASE_CREDS_B64: ${{ inputs.firebase_creds }}
+      run: |
+        mkdir -p secrets ~/.ssh
+        echo "$APPSTORE_AUTH_KEY_B64" | base64 --decode > secrets/AuthKey.p8
+        echo "$FIREBASE_CREDS_B64" | base64 --decode > secrets/firebaseAppDistributionServiceCredentialsFile.json
+        # Match SSH key — canonical ENV name
+        printf '%s' "$MATCH_GIT_PRIVATE_KEY" > secrets/match_ci_key
+        chmod 600 secrets/match_ci_key
+        cat > ~/.ssh/config <<'EOF'
+        Host github.com
+          IdentityFile $(pwd)/secrets/match_ci_key
+          StrictHostKeyChecking no
+        EOF
+
+    - name: Deploy to Firebase
+      shell: bash
+      env:
+        MATCH_PASSWORD: ${{ inputs.match_password }}
+        # Pass canonical name forward into Fastlane invocation.
+        MATCH_GIT_PRIVATE_KEY: ${{ inputs.match_git_private_key || inputs.match_ssh_private_key }}
+        FIREBASE_GROUPS: ${{ inputs.tester_groups }}
+        APPSTORE_KEY_ID: ${{ inputs.appstore_key_id }}
+        APPSTORE_ISSUER_ID: ${{ inputs.appstore_issuer_id }}
+      run: |
+        bundle exec fastlane ios deploy_on_firebase
+
+    - name: Cleanup secrets
+      shell: bash
+      if: always()
+      run: |
+        rm -f secrets/AuthKey.p8 secrets/firebaseAppDistributionServiceCredentialsFile.json secrets/match_ci_key
