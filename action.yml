@@ -43,6 +43,10 @@ inputs:
   tester_groups:
     description: 'Firebase tester group(s), comma-separated'
     required: true
+  kmp_flavor:
+    description: 'Product flavor (e.g. prod, demo, bankA) — sets KMP_FLAVOR env var for Fastlane iOS lanes'
+    required: false
+    default: 'prod'
 
 runs:
   using: 'composite'
@@ -86,6 +90,7 @@ runs:
         FIREBASE_GROUPS: ${{ inputs.tester_groups }}
         APPSTORE_KEY_ID: ${{ inputs.appstore_key_id }}
         APPSTORE_ISSUER_ID: ${{ inputs.appstore_issuer_id }}
+        KMP_FLAVOR: ${{ inputs.kmp_flavor }}
       run: |
         bundle exec fastlane ios deploy_on_firebase
 
