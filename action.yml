@@ -48,7 +48,7 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Ruby (SHA-pinned — AC19)
-      uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b  # v1.232.0
+      uses: ruby/setup-ruby@fb404b9557c186e349162b0d8efb06e2bc36edea  # v1.232.0
       with:
         bundler-cache: true
 
